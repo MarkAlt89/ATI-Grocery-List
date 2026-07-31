@@ -178,24 +178,42 @@
     }
   }
 
-  // Poll for edits made on other devices. Skipped while this device is
-  // mid-edit (typing, or unsaved changes pending) so nothing gets
-  // yanked out from under the user.
+  // ---- Real-time sync (Socket.IO — same engine as the dispatch system) --
+  // The server pushes every draft change and every recorded order to all
+  // connected devices instantly, so laptop and phone mirror each other.
+  function maybeApplyRemote(data) {
+    if (!data || typeof data.rev !== "number") return;
+    if (data.rev === draftRev) return;   // already have this state
+    if (draftDirty) return;              // our own unsaved edits win
+    const el = document.activeElement;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+    draftRev = data.rev;
+    applyDraft(data.state);
+  }
+
+  try {
+    const socket = io({ transports: ["polling", "websocket"] });
+    socket.on("draft_update", maybeApplyRemote);
+    socket.on("history_update", () => {
+      fetchOrderNo();
+      fetchOrderSummary();
+    });
+  } catch (err) {
+    // Socket library didn't load — the reconcile poll below still syncs.
+  }
+
+  // Slow catch-up poll: covers reconnects or any missed push.
   setInterval(async () => {
     if (draftDirty) return;
     const el = document.activeElement;
     if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
     try {
       const res = await fetch("/api/draft");
-      const data = await res.json();
-      if (typeof data.rev === "number" && data.rev !== draftRev) {
-        draftRev = data.rev;
-        applyDraft(data.state);
-      }
+      maybeApplyRemote(await res.json());
     } catch (err) {
       // Offline blip — try again next cycle.
     }
-  }, 4000);
+  }, 10000);
 
   // ---- Loading from the local file -----------------------------------
   reloadBtn.addEventListener("click", () => loadParts(true));
