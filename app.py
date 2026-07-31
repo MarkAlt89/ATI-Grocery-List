@@ -397,12 +397,21 @@ def order_summary():
     return jsonify(summary)
 
 
+
 @app.route("/api/email-status", methods=["GET"])
 def email_status():
-    """Tell the frontend whether 'Send via Email' can work. This is
-    Outlook-only: it requires this server to be running on Windows with
-    Outlook desktop + pywin32 installed."""
-    return jsonify({"available": OUTLOOK_AVAILABLE, "method": "outlook" if OUTLOOK_AVAILABLE else None})
+    # On Render, use SMTP. On Windows, use Outlook.
+    smtp_ready = (
+        os.environ.get("SMTP_HOST") and
+        os.environ.get("SMTP_USER") and
+        os.environ.get("SMTP_PASS")
+    )
+
+    return jsonify({
+        "available": bool(smtp_ready or OUTLOOK_AVAILABLE),
+        "method": "smtp" if smtp_ready else ("outlook" if OUTLOOK_AVAILABLE else None)
+    })
+
 
 
 @app.route("/api/export", methods=["POST"])
