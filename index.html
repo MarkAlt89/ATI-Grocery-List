@@ -377,9 +377,31 @@ input:focus-visible, button:focus-visible {
 
 @media (max-width: 880px) {
   .layout { grid-template-columns: 1fr; padding: 16px; }
-  .sidebar { flex-direction: row; overflow-x: auto; width: 100%; }
+  .sidebar { flex-direction: row; overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; }
   .ticket { position: static; margin-top: 8px; }
+
+  /* iOS Safari zooms the whole page when a focused input's font-size is
+     under 16px — keep every text input at 16px on small screens. */
+  .search-input,
+  .requested-by,
+  .qty-input,
+  .onhand-input,
+  .stepper input { font-size: 16px; }
+
+  /* Finger-sized touch targets (Apple recommends ~44pt). */
+  .stepper button { width: 42px; height: 42px; font-size: 18px; }
+  .stepper input { width: 52px; height: 42px; }
+  .onhand-input { width: 64px; height: 38px; }
+  .add-usage-btn { height: 42px; padding: 0 14px; font-size: 13px; }
+  .remove-btn { padding: 8px; }
+  .export-btn { padding: 14px 0; font-size: 16px; }
+  .clear-btn, .new-file-btn { padding: 12px 0; }
+  .cat-btn { padding: 12px 14px; }
+  .search-wrap { width: 100%; }
 }
+
+/* Never show a tap-flash rectangle on buttons (iOS default). */
+button, .cat-btn { -webkit-tap-highlight-color: transparent; }
 
 .modal {
   position: fixed;
