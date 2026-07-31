@@ -37,24 +37,12 @@ import json
 import os
 import tempfile
 from datetime import datetime, timedelta
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
 import pandas as pd
 from flask import Flask, request, jsonify, render_template, send_file, Response
 from flask_socketio import SocketIO
 
 # Outlook automation (Windows + Outlook desktop only). Not used on Render —
 # there the app sends through SMTP instead (see send_via_smtp below).
-try:
-    import win32com.client as win32
-    import pythoncom
-    OUTLOOK_AVAILABLE = True
-except ImportError:
-    win32 = None
-    pythoncom = None
-    OUTLOOK_AVAILABLE = False
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "parts-order-local-key"
@@ -110,27 +98,6 @@ ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "order_hi
 DRAFT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "draft.json")
 
 
-
-def send_via_smtp(file_path, to_email, subject, body):
-    msg = MIMEMultipart()
-    msg['From'] = os.environ["EMAIL_FROM"]
-    msg['To'] = to_email
-    msg['Subject'] = subject
-
-    # Email body
-    msg.attach(MIMEText(body, "plain"))
-
-    # File attachment
-    with open(file_path, "rb") as f:
-        part = MIMEApplication(f.read(), Name=os.path.basename(file_path))
-        part['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
-        msg.attach(part)
-
-    # Connect securely (SSL)
-    server = smtplib.SMTP_SSL(os.environ["SMTP_HOST"], int(os.environ["SMTP_PORT"]))
-    server.login(os.environ["SMTP_USER"], os.environ["SMTP_PASS"])
-    server.send_message(msg)
-    server.quit()
 def load_draft():
     if not os.path.exists(DRAFT_PATH):
         return {"rev": 0, "state": {}}
@@ -261,23 +228,6 @@ def clean_lines(raw_lines):
         for l in raw_lines
         if l.get("sku") and isinstance(l.get("qty"), (int, float)) and l.get("qty") > 0
     ]
-
-
-def send_via_outlook(file_path, to_email, subject, body):
-    """Local-only fallback: drive the Outlook desktop app on Windows."""
-    pythoncom.CoInitialize()
-    try:
-        outlook = win32.Dispatch("Outlook.Application")
-        mail = outlook.CreateItem(0)  # 0 = olMailItem
-        mail.To = to_email
-        mail.Subject = subject
-        mail.Body = body
-        mail.Attachments.Add(file_path)
-        mail.Send()
-    finally:
-        pythoncom.CoUninitialize()
-
-
 # --------------------------------------------------------------------------
 # Routes
 # --------------------------------------------------------------------------
@@ -316,13 +266,6 @@ def get_parts():
         "locations": locations,
         "filename": SOURCE_FILENAME,
     })
-
-
-@app.route("/api/emails", methods=["GET"])
-def get_emails():
-    """The saved email list, used for autofill in the 'Email to' box."""
-    return jsonify({"emails": EMAIL_ADDRESSES})
-
 
 @app.route("/api/draft", methods=["GET"])
 def get_draft():
@@ -396,24 +339,6 @@ def order_summary():
 
     return jsonify(summary)
 
-
-
-@app.route("/api/email-status", methods=["GET"])
-def email_status():
-    # On Render, use SMTP. On Windows, use Outlook.
-    smtp_ready = (
-        os.environ.get("SMTP_HOST") and
-        os.environ.get("SMTP_USER") and
-        os.environ.get("SMTP_PASS")
-    )
-
-    return jsonify({
-        "available": bool(smtp_ready or OUTLOOK_AVAILABLE),
-        "method": "smtp" if smtp_ready else ("outlook" if OUTLOOK_AVAILABLE else None)
-    })
-
-
-
 @app.route("/api/export", methods=["POST"])
 def export_order():
     data = request.get_json(force=True) or {}
@@ -436,40 +361,6 @@ def export_order():
         download_name=f"{safe_name}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-
-
-@app.route("/api/export-email", methods=["POST"])
-def export_email():
-    data = request.get_json(force=True) or {}
-    lines = clean_lines(data.get("lines", []))
-    order_no = (data.get("order_no") or "order").strip()
-    email = (data.get("email") or "").strip()
-
-    if not email:
-        return jsonify({"error": "Enter an email address to send to."}), 400
-    if not lines:
-        return jsonify({"error": "No parts in the order."}), 400
-
-    safe_name = "".join(c for c in order_no if c.isalnum() or c in ("-", "_")) or "order"
-    tmp_path = os.path.join(tempfile.gettempdir(), f"{safe_name}.xlsx")
-    build_order_excel(lines, tmp_path)
-
-    subject = f"Parts Order {order_no}"
-    body = f"Parts order {order_no} is attached.\n\nLine items: {len(lines)}\nTotal units: {sum(l['qty'] for l in lines)}"
-
-    try:
-        send_via_smtp(tmp_path, email, subject, body)
-    except Exception as exc:
-        return jsonify({"error": f"SMTP send failed: {exc}"}), 500
-    finally:
-        try:
-            os.remove(tmp_path)
-        except:
-            pass
-
-    record_order_history(order_no, lines, extra={"emailed_to": email})
-    return jsonify({"sent": True, "email": email})
-
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))

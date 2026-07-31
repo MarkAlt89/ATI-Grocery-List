@@ -52,9 +52,6 @@
             <span class="mono ticket-date" id="ticketDate"></span>
           </div>
           <div class="mono ticket-order-no" id="ticketOrderNo"></div>
-          <input id="emailTo" class="requested-by" type="email" list="emailList"
-                 placeholder="Email to (for Send via Email)" autocomplete="off" />
-          <datalist id="emailList"></datalist>
         </div>
 
         <div class="dashed"></div>
@@ -72,10 +69,6 @@
           <button id="exportBtn" class="export-btn cond" disabled>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Export to Excel
-          </button>
-          <button id="emailBtn" class="export-btn cond email-btn" disabled style="margin-top:8px;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z" opacity="0"/><path d="M4 6h16v12H4z"/><path d="M4 6l8 7 8-7"/></svg>
-            Send via Outlook
           </button>
           <button id="clearBtn" class="clear-btn" hidden>Clear order</button>
           <div id="exportConfirm" class="export-confirm" hidden></div>
