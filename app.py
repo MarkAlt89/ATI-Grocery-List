@@ -37,7 +37,10 @@ import json
 import os
 import tempfile
 from datetime import datetime, timedelta
-
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 import pandas as pd
 from flask import Flask, request, jsonify, render_template, send_file, Response
 from flask_socketio import SocketIO
@@ -107,6 +110,27 @@ ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "order_hi
 DRAFT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "draft.json")
 
 
+
+def send_via_smtp(file_path, to_email, subject, body):
+    msg = MIMEMultipart()
+    msg['From'] = os.environ["EMAIL_FROM"]
+    msg['To'] = to_email
+    msg['Subject'] = subject
+
+    # Email body
+    msg.attach(MIMEText(body, "plain"))
+
+    # File attachment
+    with open(file_path, "rb") as f:
+        part = MIMEApplication(f.read(), Name=os.path.basename(file_path))
+        part['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
+        msg.attach(part)
+
+    # Connect securely (SSL)
+    server = smtplib.SMTP_SSL(os.environ["SMTP_HOST"], int(os.environ["SMTP_PORT"]))
+    server.login(os.environ["SMTP_USER"], os.environ["SMTP_PASS"])
+    server.send_message(msg)
+    server.quit()
 def load_draft():
     if not os.path.exists(DRAFT_PATH):
         return {"rev": 0, "state": {}}
@@ -407,14 +431,6 @@ def export_order():
 
 @app.route("/api/export-email", methods=["POST"])
 def export_email():
-    if not OUTLOOK_AVAILABLE:
-        return jsonify({
-            "error": "Outlook automation isn't available on this machine. "
-                     "It needs Windows with Outlook desktop installed and "
-                     "the pywin32 package (pip install pywin32). Use "
-                     "'Export to Excel' to download the file instead."
-        }), 400
-
     data = request.get_json(force=True) or {}
     lines = clean_lines(data.get("lines", []))
     order_no = (data.get("order_no") or "order").strip()
@@ -430,25 +446,19 @@ def export_email():
     build_order_excel(lines, tmp_path)
 
     subject = f"Parts Order {order_no}"
-    body = "\n".join([
-        f"Parts order {order_no} is attached.",
-        "",
-        f"Line items: {len(lines)}",
-        f"Total units: {sum(l['qty'] for l in lines)}",
-    ])
+    body = f"Parts order {order_no} is attached.\n\nLine items: {len(lines)}\nTotal units: {sum(l['qty'] for l in lines)}"
 
     try:
-        send_via_outlook(tmp_path, email, subject, body)
-    except Exception as exc:  # noqa: BLE001 — surface the message to the user
-        return jsonify({"error": f"Couldn't send the email: {exc}"}), 500
+        send_via_smtp(tmp_path, email, subject, body)
+    except Exception as exc:
+        return jsonify({"error": f"SMTP send failed: {exc}"}), 500
     finally:
         try:
             os.remove(tmp_path)
-        except OSError:
+        except:
             pass
 
     record_order_history(order_no, lines, extra={"emailed_to": email})
-
     return jsonify({"sent": True, "email": email})
 
 

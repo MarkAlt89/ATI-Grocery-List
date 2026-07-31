@@ -381,7 +381,9 @@
       <div>
         <div class="part-name">${escapeHtml(p.description || "(no description)")}</div>
         <div class="part-meta mono">${escapeHtml(p.sku)} &middot; ${escapeHtml(p.location)}${p.extra_field ? ` (${escapeHtml(p.extra_field)})` : ""}</div>
-        <div class="part-stats mono">Quantity: ${formatNum(p.qty_on_hand)} &middot; Container Usage/16h: ${formatNum(p.usage_16h)}</div>
+        <div class="part-stats mono">
+          Quantity: ${formatNum(p.qty_on_hand)} · Container Usage/${p.location === "BU" || p.location === "Assembly" ? "8h" : "16h"}: ${formatNum(p.usage_16h)}
+        </div>
       </div>
       <div class="onhand-row">
         <label class="onhand-label mono">On hand now</label>
@@ -395,7 +397,7 @@
           <button type="button" data-action="inc" aria-label="Increase quantity">+</button>
         </div>
         <button type="button" class="add-usage-btn mono" data-action="add-usage" ${usageToAdd <= 0 ? "disabled" : ""}>
-          +${usageToAdd} (16h)
+          +${usageToAdd} (${p.location === "BU" || p.location === "Assembly" ? "8h" : "16h"})
         </button>
       </div>
     `;
