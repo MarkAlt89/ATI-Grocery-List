@@ -334,8 +334,8 @@
 
     card.innerHTML = `
       <div>
-        <div class="part-name">${escapeHtml(p.description || "(no description)")}</div>
-        <div class="part-meta mono">${escapeHtml(p.sku)} &middot; ${escapeHtml(p.location)}${p.extra_field ? ` (${escapeHtml(p.extra_field)})` : ""}</div>
+        <div class="part-name">${escapeHtml(p.sku)} ${escapeHtml(p.description || "(no description)")}</div>
+        <div class="part-meta mono">${escapeHtml(p.location)} &middot; ${p.extra_field ? ` (${escapeHtml(p.extra_field)})` : ""}</div>
         <div class="part-stats mono">
           Quantity: ${formatNum(p.qty_on_hand)} · Container Usage/${p.location === "BU" || p.location === "Assembly" ? "8h" : "16h"}: ${formatNum(p.usage_16h)}
         </div>
