@@ -1,6 +1,6 @@
-__pycache__/
-*.pyc
-# Local order history — don't commit this, or every Render deploy will
-# reset the PO counter/history back to whatever was committed.
-order_history.json
-draft.json
+import os
+wsgi_app = "app:app"
+worker_class = 'geventwebsocket.gunicorn.workers.GeventWebSocketWorker'
+workers = 1
+
+bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"

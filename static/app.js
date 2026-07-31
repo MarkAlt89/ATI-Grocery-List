@@ -42,17 +42,18 @@
   document.getElementById("ticketDate").textContent = todayStamp();
 
   // ---- Email availability -----------------------------------------------
-  // "Send via Email" works when the server has SMTP configured (Render)
-  // or when running locally on Windows with Outlook desktop + pywin32.
-  // Check once on load and hide the button entirely if neither is
-  // available, rather than letting people hit a dead end.
+  // Outlook sending only works when THIS SERVER runs on a Windows machine
+  // with Outlook desktop + pywin32 (i.e. the laptop). The button always
+  // shows; if the server can't send (e.g. hosted on Render/Linux), clicking
+  // it explains why instead of silently hiding.
+  let outlookAvailable = false;
   async function fetchEmailStatus() {
     try {
       const res = await fetch("/api/email-status");
       const data = await res.json();
-      emailBtn.hidden = !data.available;
+      outlookAvailable = !!data.available;
     } catch (err) {
-      emailBtn.hidden = true;
+      outlookAvailable = false;
     }
   }
   fetchEmailStatus();
@@ -115,6 +116,106 @@
   fetchOrderNo();
   fetchOrderSummary();
 
+  // ---- Shared draft (persists across refreshes AND devices) -------------
+  // Every edit is saved (debounced) to the server's draft.json; every page
+  // load restores it; and open pages poll every few seconds so an order
+  // started on the laptop shows up on the phone and vice versa.
+  let draftRev = 0;       // last server revision we've seen/produced
+  let draftDirty = false; // local edits not yet saved to the server
+  let saveTimer = null;
+
+  function draftState() {
+    return {
+      quantities,
+      onHand,
+      excluded: Array.from(excluded),
+      email: emailToInput.value,
+    };
+  }
+
+  function scheduleSaveDraft() {
+    draftDirty = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveDraftNow, 400);
+  }
+
+  async function saveDraftNow() {
+    try {
+      const res = await fetch("/api/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: draftState() }),
+      });
+      const data = await res.json();
+      if (data && typeof data.rev === "number") {
+        draftRev = data.rev;
+        draftDirty = false;
+      }
+    } catch (err) {
+      // Server unreachable — stay dirty; next edit or poll cycle retries.
+    }
+  }
+
+  function applyDraft(state) {
+    state = state || {};
+    quantities = state.quantities || {};
+    onHand = state.onHand || {};
+    excluded = new Set(state.excluded || []);
+    if (typeof state.email === "string" && document.activeElement !== emailToInput) {
+      emailToInput.value = state.email;
+    }
+    renderParts();
+    renderTicket();
+  }
+
+  async function loadDraft() {
+    try {
+      const res = await fetch("/api/draft");
+      const data = await res.json();
+      draftRev = data.rev || 0;
+      return data.state || {};
+    } catch (err) {
+      return {};
+    }
+  }
+
+  // ---- Real-time sync (Socket.IO — same engine as the dispatch system) --
+  // The server pushes every draft change and every recorded order to all
+  // connected devices instantly, so laptop and phone mirror each other.
+  function maybeApplyRemote(data) {
+    if (!data || typeof data.rev !== "number") return;
+    if (data.rev === draftRev) return;   // already have this state
+    if (draftDirty) return;              // our own unsaved edits win
+    const el = document.activeElement;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+    draftRev = data.rev;
+    applyDraft(data.state);
+  }
+
+  try {
+    const socket = io({ transports: ["polling", "websocket"] });
+    socket.on("draft_update", maybeApplyRemote);
+    socket.on("history_update", () => {
+      fetchOrderNo();
+      fetchOrderSummary();
+    });
+  } catch (err) {
+    // Socket library didn't load — the reconcile poll below still syncs.
+  }
+
+  // Slow catch-up poll: covers reconnects or any missed push.
+  setInterval(async () => {
+    if (draftDirty) return;
+    const el = document.activeElement;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+    try {
+      const res = await fetch("/api/draft");
+      maybeApplyRemote(await res.json());
+    } catch (err) {
+      // Offline blip — try again next cycle.
+    }
+  }, 10000);
+
   // ---- Loading from the local file -----------------------------------
   reloadBtn.addEventListener("click", () => loadParts(true));
   retryBtn.addEventListener("click", () => loadParts(false));
@@ -151,6 +252,17 @@
 
       parts = data.parts;
       locations = data.locations;
+
+      // Restore the shared draft (saved server-side) so a refresh or a
+      // different device picks up right where the order left off.
+      const saved = await loadDraft();
+      if (saved && (saved.quantities || saved.onHand || saved.excluded || saved.email)) {
+        quantities = saved.quantities || {};
+        onHand = saved.onHand || {};
+        excluded = new Set(saved.excluded || []);
+        if (typeof saved.email === "string" && saved.email) emailToInput.value = saved.email;
+      }
+
       // keep existing quantities/on-hand entries where the SKU still exists, drop the rest
       const keptQuantities = {};
       const keptOnHand = {};
@@ -319,6 +431,7 @@
       excluded.delete(p.sku); // editing on-hand means they want it recalculated, not hidden
       refreshNeedBadge();
       renderTicket();
+      scheduleSaveDraft();
     });
     // Adds the container-usage-per-16h amount straight onto the current
     // quantity in one click, without submitting anything — you can still
@@ -337,6 +450,7 @@
     quantities[sku] = Math.max(0, qty);
     if (quantities[sku] > 0) excluded.delete(sku);
     renderTicket();
+    scheduleSaveDraft();
   }
 
   // ---- Pick ticket -----------------------------------------------------
@@ -380,6 +494,7 @@
           excluded.add(l.sku);
           renderParts();
           renderTicket();
+          scheduleSaveDraft();
         });
         ticketLines.appendChild(row);
       });
@@ -396,6 +511,7 @@
 
   emailToInput.addEventListener("input", () => {
     emailBtn.disabled = orderLines().length === 0 || !emailToInput.value.trim();
+    scheduleSaveDraft();
   });
 
   clearBtn.addEventListener("click", () => {
@@ -404,6 +520,7 @@
     excluded = new Set();
     renderParts();
     renderTicket();
+    scheduleSaveDraft();
   });
 
   // ---- Export / Email -----------------------------------------------------
@@ -420,6 +537,15 @@
 
   emailBtn.addEventListener("click", () => {
     if (orderLines().length === 0 || !emailToInput.value.trim()) return;
+    if (!outlookAvailable) {
+      alert(
+        "Send via Outlook only works when this app is running on the Windows " +
+        "laptop (Outlook desktop + pywin32 installed). This copy is running on " +
+        "a server without Outlook — use Export to Excel and attach the file to " +
+        "an email instead."
+      );
+      return;
+    }
     pendingAction = "email";
     modalTitle.textContent = "Confirm Send";
     modalText.textContent = `Send this order to ${emailToInput.value.trim()}?`;
@@ -498,14 +624,23 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lines, order_no: orderNo, email }),
       });
-      const data = await res.json();
+
+      // The error body should be JSON, but a gateway timeout (Render 502)
+      // or auth page returns HTML — parse defensively so we can still show
+      // a real status code instead of a misleading "couldn't reach" alert.
+      let data = null;
+      try { data = await res.json(); } catch (e) { /* non-JSON body */ }
 
       if (!res.ok) {
-        alert(data.error || "Sending the email failed.");
+        alert(
+          (data && data.error) ||
+          `Sending failed — the server responded with status ${res.status}. ` +
+          `Check the Render logs (Dashboard → your service → Logs) for the full error.`
+        );
         return;
       }
 
-      exportConfirm.textContent = `Sent ${orderNo}.xlsx to ${data.email}`;
+      exportConfirm.textContent = `Sent ${orderNo}.xlsx to ${(data && data.email) || email}`;
       exportConfirm.hidden = false;
     } catch (err) {
       alert("Couldn't reach the server to send the email.");
