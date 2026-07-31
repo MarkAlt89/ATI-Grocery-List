@@ -42,17 +42,18 @@
   document.getElementById("ticketDate").textContent = todayStamp();
 
   // ---- Email availability -----------------------------------------------
-  // "Send via Email" works when the server has SMTP configured (Render)
-  // or when running locally on Windows with Outlook desktop + pywin32.
-  // Check once on load and hide the button entirely if neither is
-  // available, rather than letting people hit a dead end.
+  // Outlook sending only works when THIS SERVER runs on a Windows machine
+  // with Outlook desktop + pywin32 (i.e. the laptop). The button always
+  // shows; if the server can't send (e.g. hosted on Render/Linux), clicking
+  // it explains why instead of silently hiding.
+  let outlookAvailable = false;
   async function fetchEmailStatus() {
     try {
       const res = await fetch("/api/email-status");
       const data = await res.json();
-      emailBtn.hidden = !data.available;
+      outlookAvailable = !!data.available;
     } catch (err) {
-      emailBtn.hidden = true;
+      outlookAvailable = false;
     }
   }
   fetchEmailStatus();
@@ -536,6 +537,15 @@
 
   emailBtn.addEventListener("click", () => {
     if (orderLines().length === 0 || !emailToInput.value.trim()) return;
+    if (!outlookAvailable) {
+      alert(
+        "Send via Outlook only works when this app is running on the Windows " +
+        "laptop (Outlook desktop + pywin32 installed). This copy is running on " +
+        "a server without Outlook — use Export to Excel and attach the file to " +
+        "an email instead."
+      );
+      return;
+    }
     pendingAction = "email";
     modalTitle.textContent = "Confirm Send";
     modalText.textContent = `Send this order to ${emailToInput.value.trim()}?`;
