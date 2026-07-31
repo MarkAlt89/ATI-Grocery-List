@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Parts Order</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="brand">
+      <span class="cond title">Parts Order</span>
+      <span class="mono order-no" id="orderNo"></span>
+    </div>
+    <div class="search-wrap" id="searchWrap" hidden>
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="searchInput" class="search-input" type="text" placeholder="Search by name or part number" />
+    </div>
+  </header>
+
+  <!-- Loading / error screen (shown before the local file finishes loading) -->
+  <section id="statusScreen" class="upload-screen">
+    <div class="upload-card">
+      <div class="upload-icon" id="statusIcon">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      </div>
+      <h1 class="cond upload-title" id="statusTitle">Loading parts&hellip;</h1>
+      <p class="upload-hint" id="statusHint">
+        Reading <b id="statusFilename">inventory.xlsx</b> from the app folder.
+      </p>
+
+      <div id="uploadError" class="upload-error" hidden></div>
+      <button id="retryBtn" class="new-file-btn" hidden style="margin-top:16px;">Try again</button>
+    </div>
+  </section>
+
+  <!-- Main app -->
+  <div class="layout" id="mainLayout" hidden>
+    <nav class="sidebar" id="sidebar"></nav>
+
+    <main class="parts-grid" id="partsGrid"></main>
+
+    <aside class="ticket">
+      <div class="ticket-card">
+        <div class="perf"></div>
+        <div class="ticket-top">
+          <div class="ticket-head">
+            <span class="cond ticket-title">Pick Ticket</span>
+            <span class="mono ticket-date" id="ticketDate"></span>
+          </div>
+          <div class="mono ticket-order-no" id="ticketOrderNo"></div>
+          <input id="emailTo" class="requested-by" type="email" list="emailList"
+                 placeholder="Email to (for Send via Email)" autocomplete="off" />
+          <datalist id="emailList"></datalist>
+        </div>
+
+        <div class="dashed"></div>
+
+        <div class="ticket-lines" id="ticketLines">
+          <div class="ticket-empty">No parts selected yet. Add quantities to build the order.</div>
+        </div>
+
+        <div class="dashed"></div>
+
+        <div class="ticket-bottom">
+          <div class="ticket-stat"><span>Line items</span><span class="mono" id="lineCount">0</span></div>
+          <div class="ticket-stat"><span>Total units</span><span class="mono" id="totalUnits">0</span></div>
+
+          <button id="exportBtn" class="export-btn cond" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export to Excel
+          </button>
+          <button id="emailBtn" class="export-btn cond email-btn" disabled hidden style="margin-top:8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z" opacity="0"/><path d="M4 6h16v12H4z"/><path d="M4 6l8 7 8-7"/></svg>
+            Send via Email
+          </button>
+          <button id="clearBtn" class="clear-btn" hidden>Clear order</button>
+          <div id="exportConfirm" class="export-confirm" hidden></div>
+        </div>
+      </div>
+      <button id="reloadBtn" class="new-file-btn">Reload from file</button>
+
+      <div class="history-card" id="historyCard">
+        <div class="history-title cond">Order History</div>
+        <div class="history-row">
+          <span class="history-label">Today</span>
+          <span class="mono history-value" id="historyDay">&mdash;</span>
+        </div>
+        <div class="history-row">
+          <span class="history-label">Past 7 days</span>
+          <span class="mono history-value" id="historyWeek">&mdash;</span>
+        </div>
+        <div class="history-row">
+          <span class="history-label">Past 30 days</span>
+          <span class="mono history-value" id="historyMonth">&mdash;</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="confirmModal" class="modal" hidden>
+    <div class="modal-card">
+      <h2 class="cond modal-title" id="modalTitle">Confirm Export</h2>
+      <p class="modal-text" id="modalText">Are you sure you want to export this order?</p>
+      <div class="modal-order mono" id="modalOrderNo"></div>
+
+      <div class="modal-buttons">
+        <button id="modalCancel" class="modal-btn cancel">Cancel</button>
+        <button id="modalConfirm" class="modal-btn confirm">Export</button>
+      </div>
+    </div>
+  </div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+
+</body>
+</html>
