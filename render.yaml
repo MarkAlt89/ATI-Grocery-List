@@ -3,7 +3,7 @@ services:
     name: parts-order
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn app:app --timeout 120
     envVars:
       - key: SMTP_HOST
         sync: false

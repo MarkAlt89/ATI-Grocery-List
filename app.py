@@ -233,7 +233,12 @@ def clean_lines(raw_lines):
 def send_via_smtp(file_path, to_email, subject, body):
     """Send the order through a normal SMTP server (Gmail, Office 365,
     etc.), using credentials from environment variables. This is what runs
-    on Render, since a Linux server has no Outlook to automate."""
+    on Render, since a Linux server has no Outlook to automate.
+
+    Port matters: 587 uses STARTTLS (connect plain, then upgrade), while
+    465 is SSL from the first byte. Using the wrong mode doesn't error —
+    it just hangs until the request times out — so handle both here.
+    """
     msg = EmailMessage()
     msg["From"] = SMTP_FROM
     msg["To"] = to_email
@@ -249,10 +254,30 @@ def send_via_smtp(file_path, to_email, subject, body):
         filename=os.path.basename(file_path),
     )
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.send_message(msg)
+    try:
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+                server.login(SMTP_USER, SMTP_PASS)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(SMTP_USER, SMTP_PASS)
+                server.send_message(msg)
+    except smtplib.SMTPAuthenticationError as exc:
+        raise RuntimeError(
+            "SMTP login was rejected. For Gmail this must be an App Password "
+            "(16 characters, entered without spaces), not your normal "
+            "password — and 2-Step Verification must be on. "
+            f"Server said: {exc.smtp_code} {exc.smtp_error}"
+        ) from exc
+    except (smtplib.SMTPConnectError, TimeoutError, OSError) as exc:
+        raise RuntimeError(
+            f"Couldn't connect to {SMTP_HOST}:{SMTP_PORT} — check SMTP_HOST "
+            f"and SMTP_PORT (587 for STARTTLS, 465 for SSL). ({exc})"
+        ) from exc
 
 
 def send_via_outlook(file_path, to_email, subject, body):
