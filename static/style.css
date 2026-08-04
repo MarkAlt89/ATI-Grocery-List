@@ -475,3 +475,38 @@ button, .cat-btn { -webkit-tap-highlight-color: transparent; }
 .modal-btn.cancel:hover {
   background: #d9dcd6;
 }
+#securityGate {
+    position: fixed;
+    inset: 0;
+    background: #f5f5f5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999999;
+}
+.gate-box {
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    text-align: center;
+    width: 280px;
+}
+.gate-input {
+    width: 100%;
+    padding: 10px;
+    font-size: 15px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+}
+.gate-btn {
+    width: 100%;
+    padding: 10px;
+    font-size: 15px;
+    background: #0074d4;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
