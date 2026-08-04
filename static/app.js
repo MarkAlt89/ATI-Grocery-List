@@ -1,3 +1,24 @@
+const MASTER_PASSKEY = "ATIGrocery"; // or whatever you want
+
+function handleGateKey(e) {
+  if (e.key === "Enter") verifyGatePasskey();
+}
+
+function verifyGatePasskey() {
+  const input = document.getElementById("passkeyInput").value;
+  const errorDiv = document.getElementById("errorMessage");
+
+  if (input === MASTER_PASSKEY) {
+    document.getElementById("securityGate").style.display = "none";
+    document.getElementById("appWrapper").style.display = "block";
+
+    // Now it is safe to initialize your entire app:
+    START_APP();
+  } else {
+    errorDiv.textContent = "❌ Invalid Passkey. Access Denied.";
+    document.getElementById("passkeyInput").value = "";
+  }
+}
 (() => {
   "use strict";
 
@@ -242,7 +263,11 @@
   }
 
   // Kick off the initial load as soon as the page opens.
+  window.START_APP = function() {
+  fetchOrderNo();
+  fetchOrderSummary();
   loadParts(false);
+};
 
   // ---- Sidebar (store locations) --------------------------------------
   function renderSidebar() {
@@ -497,8 +522,6 @@
     await doDownloadExport();
     // Pull the next order number and refresh the history stats now that
     // this export has been recorded server-side.
-    fetchOrderNo();
-    fetchOrderSummary();
   });
 
   async function doDownloadExport() {
