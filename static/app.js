@@ -316,11 +316,12 @@
     const raw = (p.usage_16h || 0) - getOnHand(p);
     return raw > 0 ? Math.ceil(raw) : 0;
   }
-  // What actually goes on the order: whatever quantity the user added by
-  // hand, plus the shortfall between usage/16h and on-hand.
+  // What actually goes on the order: ONLY what the user added by hand.
+  // The usage-vs-on-hand shortfall is shown as a "Need +X" warning badge
+  // on the part card, but it never auto-adds itself to the ticket.
   function exportQty(p) {
     if (excluded.has(p.sku)) return 0;
-    return (quantities[p.sku] || 0) + neededQty(p);
+    return quantities[p.sku] || 0;
   }
 
   function partCard(p) {
@@ -390,11 +391,10 @@
       renderTicket();
       scheduleSaveDraft();
     });
-    // Adds the container-usage-per-16h amount straight onto the current
-    // quantity in one click, without submitting anything — you can still
-    // adjust it afterwards with the stepper or by typing. Note this is
-    // separate from the automatic "Need" shortfall below, which gets
-    // added on top at export time regardless.
+    // Adds the container-usage amount straight onto the current quantity
+    // in one click — you can still adjust it afterwards with the stepper
+    // or by typing. Nothing is ever added automatically: the "Need +X"
+    // badge is only a warning.
     card.querySelector('[data-action="add-usage"]').addEventListener("click", () => {
       setQty(p.sku, (quantities[p.sku] || 0) + usageToAdd);
       input.value = quantities[p.sku] || 0;
@@ -430,8 +430,9 @@
       lines.forEach((l) => {
         const row = document.createElement("div");
         row.className = "ticket-line";
-        const breakdown = l.need > 0
-          ? `<div class="ticket-line-breakdown mono">${l.rawQty} added + ${formatNum(l.need)} need</div>`
+        const shortBy = l.need - l.qty;
+        const breakdown = shortBy > 0
+          ? `<div class="ticket-line-breakdown mono need-warning">⚠ Need suggests +${formatNum(shortBy)} more</div>`
           : "";
         row.innerHTML = `
           <div style="min-width:0;">
@@ -520,17 +521,18 @@
         return;
       }
 
+      const fileName = res.headers.get("X-Export-Filename") || fallbackExportName();
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${orderNo}.xlsx`;
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
 
-      exportConfirm.textContent = `Downloaded ${orderNo}.xlsx`;
+      exportConfirm.textContent = `Downloaded ${fileName}`;
       exportConfirm.hidden = false;
     } finally {
       exportBtn.innerHTML = originalText;
@@ -539,6 +541,13 @@
   }
 
   // ---- Helpers -----------------------------------------------------------
+  // Mirror of the server's export naming: date + pull window, cutoff 11 AM.
+  function fallbackExportName() {
+    const d = new Date();
+    const pull = d.getHours() < 11 ? "1st Pull" : "2nd Pull";
+    return `${d.getMonth() + 1}.${d.getDate()}.${d.getFullYear()} ${pull}.xlsx`;
+  }
+
   function todayStamp() {
     const d = new Date();
     return d.toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit" });

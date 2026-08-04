@@ -36,7 +36,8 @@ import io
 import json
 import os
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import pandas as pd
 from flask import Flask, request, jsonify, render_template, send_file, Response
 from flask_socketio import SocketIO
@@ -86,6 +87,38 @@ EMAIL_ADDRESSES = [
 # anything, password must match. If unset (e.g. running on your laptop),
 # no login is required.
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
+
+# --------------------------------------------------------------------------
+# TIMEZONE — Render's servers run on UTC, which is 4-5 hours ahead of
+# Indiana. Every time-based feature (the 11 AM pull cutoff, PO date
+# rollover, day/week/month history windows) uses this timezone instead of
+# the server clock, so it behaves like a clock on the wall in Indianapolis
+# no matter where the server physically runs.
+# --------------------------------------------------------------------------
+APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "America/Indiana/Indianapolis")
+try:
+    APP_TZ = ZoneInfo(APP_TIMEZONE)
+except Exception:  # tz database unavailable (some Windows setups) — fall
+    APP_TZ = None  # back to the machine's local clock, which is correct
+                   # when the app runs on the laptop anyway.
+
+
+def now_local():
+    """Current time in the app's timezone (Indianapolis by default)."""
+    return datetime.now(APP_TZ) if APP_TZ else datetime.now()
+
+
+def parse_order_date(value):
+    """Parse a stored history timestamp. New entries carry an explicit
+    timezone offset; legacy entries were naive server (UTC) time — treat
+    those as UTC and convert, so history windows stay accurate."""
+    dt = datetime.fromisoformat(value)
+    if APP_TZ:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(APP_TZ)
+    return dt.replace(tzinfo=None)
+
 
 # Server-side order history: powers the day/week/month summary and the
 # sequential PO numbers.
@@ -193,7 +226,7 @@ def record_order_history(order_no, lines, extra=None):
     history = load_order_history()
     entry = {
         "order_no": order_no,
-        "date": datetime.now().isoformat(),
+        "date": now_local().isoformat(),
         "line_count": len(lines),
         "total_units": sum(l["qty"] for l in lines),
         "lines": lines,
@@ -210,14 +243,28 @@ def record_order_history(order_no, lines, extra=None):
 # Excel + email helpers
 # --------------------------------------------------------------------------
 
-def build_order_excel(lines, path_or_buffer):
+def pull_label(now=None):
+    """Orders placed before 11:00 AM are the 1st Pull; 11:00 AM onward is
+    the 2nd Pull. Change PULL_CUTOFF_HOUR if the cutoff time moves."""
+    PULL_CUTOFF_HOUR = 11
+    now = now or now_local()
+    return "1st Pull" if now.hour < PULL_CUTOFF_HOUR else "2nd Pull"
+
+
+def export_display_name(now=None):
+    """Filename/sheet title for an export: '8.3.2026 1st Pull'."""
+    now = now or now_local()
+    return f"{now.month}.{now.day}.{now.year} {pull_label(now)}"
+
+
+def build_order_excel(lines, path_or_buffer, sheet_name="Order"):
     out_df = pd.DataFrame([
         {"Material Number": l["sku"], "Quantity Ordered": l["qty"]}
         for l in lines
     ])
     with pd.ExcelWriter(path_or_buffer, engine="openpyxl") as writer:
-        out_df.to_excel(writer, index=False, sheet_name="Order")
-        ws = writer.sheets["Order"]
+        out_df.to_excel(writer, index=False, sheet_name=sheet_name)
+        ws = writer.sheets[sheet_name]
         ws.column_dimensions["A"].width = 20
         ws.column_dimensions["B"].width = 20
 
@@ -298,9 +345,14 @@ def next_order_no():
     """Next PO number = (# of orders already exported today) + 1, based on
     the server-side history file."""
     history = load_order_history()
-    now = datetime.now()
+    now = now_local()
     today_key = now.strftime("%Y-%m-%d")
-    count_today = sum(1 for o in history if o.get("date", "").startswith(today_key))
+    def is_today(o):
+        try:
+            return parse_order_date(o["date"]).strftime("%Y-%m-%d") == today_key
+        except (KeyError, ValueError, TypeError):
+            return False
+    count_today = sum(1 for o in history if is_today(o))
     next_count = count_today + 1
     order_no = f"PO-{now.strftime('%Y.%m.%d')}-{next_count}"
     return jsonify({"order_no": order_no})
@@ -309,7 +361,7 @@ def next_order_no():
 @app.route("/api/order-summary", methods=["GET"])
 def order_summary():
     history = load_order_history()
-    now = datetime.now()
+    now = now_local()
     windows = {"day": timedelta(days=1), "week": timedelta(days=7), "month": timedelta(days=30)}
 
     summary = {}
@@ -318,8 +370,8 @@ def order_summary():
         relevant = []
         for o in history:
             try:
-                order_date = datetime.fromisoformat(o["date"])
-            except (KeyError, ValueError):
+                order_date = parse_order_date(o["date"])
+            except (KeyError, ValueError, TypeError):
                 continue
             if order_date >= cutoff:
                 relevant.append(o)
@@ -348,19 +400,25 @@ def export_order():
     if not lines:
         return jsonify({"error": "No parts in the order."}), 400
 
+    # Name the file (and the worksheet tab) by date + pull window,
+    # e.g. "8.3.2026 1st Pull.xlsx" — before 11 AM = 1st Pull, after = 2nd.
+    display_name = export_display_name()
+
     buffer = io.BytesIO()
-    build_order_excel(lines, buffer)
+    build_order_excel(lines, buffer, sheet_name=display_name)
     buffer.seek(0)
 
-    record_order_history(order_no, lines)
+    record_order_history(order_no, lines, extra={"pull": pull_label()})
 
-    safe_name = "".join(c for c in order_no if c.isalnum() or c in ("-", "_")) or "order"
-    return send_file(
+    resp = send_file(
         buffer,
         as_attachment=True,
-        download_name=f"{safe_name}.xlsx",
+        download_name=f"{display_name}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+    # Let the frontend name the downloaded blob the same way.
+    resp.headers["X-Export-Filename"] = f"{display_name}.xlsx"
+    return resp
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
