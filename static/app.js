@@ -95,9 +95,6 @@ function verifyGatePasskey() {
     if (data.month) historyMonth.textContent = fmt(data.month);
   }
 
-  fetchOrderNo();
-  fetchOrderSummary();
-
   // ---- Shared draft (persists across refreshes AND devices) -------------
   // Every edit is saved (debounced) to the server's draft.json; every page
   // load restores it; and open pages poll every few seconds so an order
